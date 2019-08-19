@@ -61,21 +61,21 @@ def degrees_to_radians(degrees):
 def radians_to_degrees(radians):
     return radians * 180 / math.pi
 
-def get_nearest_ground_speed_azimuth(ground_speed, azimuth, xyz_keys, two_dim_tuple = False):
-    best_match = xyz_keys[0][len(xyz_keys[0]) - 1]
-    if two_dim_tuple:
-        best_match = best_match[1]
+def get_nearest_ground_speed_azimuth(ground_speed, azimuth, list_grSpd_azi, two_dim_tuple = False):
+    best_match = list_grSpd_azi[0]
+#     if two_dim_tuple:
+#         best_match = best_match[1]
     print(best_match)
     azimuth_diff = get_diff_azimuth(azimuth, best_match[1])
     azimuth_diff = degrees_to_radians(azimuth_diff)
     best_match_rate = ground_speed/(best_match[0] * math.cos(azimuth_diff))
     if best_match_rate > 1:
         best_match_rate = 1/best_match_rate
-    for i in range(len(xyz_keys)):
+    for i in range(len(list_grSpd_azi)):
         if i != 0:
-            check_match = xyz_keys[i][len(xyz_keys[i]) - 1]
-            if two_dim_tuple:
-                check_match = check_match[1]
+            check_match = list_grSpd_azi[i]
+#             if two_dim_tuple:
+#                 check_match = check_match[1]
             azimuth_diff = get_diff_azimuth(azimuth, check_match[1])
             azimuth_diff = degrees_to_radians(azimuth_diff)
             match_rate = ground_speed/(check_match[0] * math.cos(azimuth_diff))
