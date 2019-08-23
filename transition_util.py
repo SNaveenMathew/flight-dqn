@@ -65,7 +65,6 @@ def get_nearest_ground_speed_azimuth(ground_speed, azimuth, list_grSpd_azi, two_
     best_match = list_grSpd_azi[0]
 #     if two_dim_tuple:
 #         best_match = best_match[1]
-    print(best_match)
     azimuth_diff = get_diff_azimuth(azimuth, best_match[1])
     azimuth_diff = degrees_to_radians(azimuth_diff)
     best_match_rate = ground_speed/(best_match[0] * math.cos(azimuth_diff))
