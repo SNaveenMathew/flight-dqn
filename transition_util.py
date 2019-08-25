@@ -42,7 +42,7 @@ def isinrange(pos, lat_len, lon_len, alt_len = 100):
     return pos[0] >= 0 and pos[0] <= 100 and pos[1] >= 0 and pos[1] <= 100 and pos[2] >= 0 and pos[2] <= alt_len
 
 def check_collision(pos, reference):
-    return pos[2] == reference[2] and pos[1] == reference[1] and pos[0] == reference[0]
+    return pos == reference
 
 def check_conflict(pos, reference):
     return abs(pos[2] - reference[2]) < 3 and abs(pos[1] - reference[1]) < 3 and abs(pos[0] - reference[0]) < 3
