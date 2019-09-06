@@ -85,3 +85,12 @@ def get_nearest_ground_speed_azimuth(ground_speed, azimuth, list_grSpd_azi, two_
                 best_match_rate = match_rate
     
     return best_match
+
+def append_xyz(landing_ac_data, x_max, y_max, z_max):
+    landing_ac_data['x'] = ((landing_ac_data['lon'] + 78) * x_max/10).apply(np.ceil) # -78 to -68
+    landing_ac_data['y'] = ((landing_ac_data['lat'] - 35) * y_max/10).apply(np.ceil) # 35 to 45
+    landing_ac_data['z'] = (landing_ac_data['altitude']/500).apply(np.ceil) # Observed: 0-43000, but limiting to 0-50000
+    landing_ac_data['x'] = landing_ac_data['x'].clip(0, x_max).apply(np.int16)
+    landing_ac_data['y'] = landing_ac_data['y'].clip(0, y_max).apply(np.int16)
+    landing_ac_data['z'] = landing_ac_data['z'].clip(0, z_max).apply(np.int16)
+    return landing_ac_data
