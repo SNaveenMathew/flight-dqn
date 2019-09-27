@@ -1,6 +1,5 @@
 from geopy import distance
-import numpy as np
-import math
+import numpy as np, math, pandas as pd
 def get_current_pos(row, ts1):
     if row['ts'] != ts1:
         distnc = (row['ground_speed'] * (ts1 - row['ts'])) * 4.63/9
@@ -21,6 +20,16 @@ def convert_pos_to_xyz(pos, conversion_y = 0.0829, conversion_z = 500):
     z = int(np.ceil(pos[2]/conversion_z))
     return (x, y, z)
 
+def get_distance_from_airport(x, airport_coords):
+    return (math.sqrt((x['x'] - airport_coords[0])**2 + (x['y'] - airport_coords[1])**2))
+
+def convert_pos_to_xyz_new(pos, x_max, y_max, z_max):
+    # Minimum required separation is 5 nm = 9.26 km
+    x = int(np.ceil((pos[1] + 78) * x_max/10))
+    y = int(np.ceil((pos[0] - 35) * y_max/10))
+    z = int(np.ceil(pos[2]/500))
+    return (x, y, z)
+
 def repeat(x, times):
     lis = [x for i in range(times)]
     return lis
@@ -31,12 +40,12 @@ def unlist(lis):
         ret += i
     return ret
 
-def get_xyz(row, conversion_y = 0.0829, conversion_z = 500):
-    conversion_x = 9.26/(math.cos(row[0] * math.pi/180) * 111.699)
-    y = int(np.ceil((row[0] - 35)/conversion_y))
-    x = int(np.ceil((row[1] + 78)/conversion_x))
-    z = int(np.ceil(row[2]/conversion_z))
-    return (x, y, z)
+# def get_xyz(row, conversion_y = 0.0829, conversion_z = 500):
+#     conversion_x = 9.26/(math.cos(row[0] * math.pi/180) * 111.699)
+#     y = int(np.ceil((row[0] - 35)/conversion_y))
+#     x = int(np.ceil((row[1] + 78)/conversion_x))
+#     z = int(np.ceil(row[2]/conversion_z))
+#     return (x, y, z)
 
 def isinrange(pos, lat_len, lon_len, alt_len = 100):
     return pos[0] >= 0 and pos[0] <= 100 and pos[1] >= 0 and pos[1] <= 100 and pos[2] >= 0 and pos[2] <= alt_len
@@ -94,3 +103,19 @@ def append_xyz(landing_ac_data, x_max, y_max, z_max):
     landing_ac_data['y'] = landing_ac_data['y'].clip(0, y_max).apply(np.int16)
     landing_ac_data['z'] = landing_ac_data['z'].clip(0, z_max).apply(np.int16)
     return landing_ac_data
+
+def append_xyz_series(series, x_max, y_max, z_max):
+    series = pd.concat(series.apply(pd.DataFrame).tolist(), axis=1).T
+    series.columns = ["lat", "lon", "altitude"]
+    series = append_xyz(series, x_max, y_max, z_max)
+    return (series)
+
+def get_next_state(df, transitions1_xyz, nearest_ground_speed_azimuth):
+    actions = transitions1_xyz[(df['x'], df['y'], df['z'])][nearest_ground_speed_azimuth]
+    temp_delta_ts = delta_ts1[(df['x'], df['y'], df['z'])][nearest_ground_speed_azimuth]
+    next_xyzs = []
+    for key in actions.keys():
+        total = sum(list(actions[key].values()))
+        next_xyzs.append(repeat(key, total))
+    next_xyzs = unlist(next_xyzs)
+    return actions, temp_delta_ts, next_xyzs
