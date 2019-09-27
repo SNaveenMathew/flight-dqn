@@ -1,5 +1,6 @@
 from geopy import distance
-import numpy as np, math, pandas as pd
+import numpy as np, math, pandas as pd, itertools
+
 def get_current_pos(row, ts1):
     if row['ts'] != ts1:
         distnc = (row['ground_speed'] * (ts1 - row['ts'])) * 4.63/9
@@ -50,8 +51,8 @@ def unlist(lis):
 def isinrange(pos, lat_len, lon_len, alt_len = 100):
     return pos[0] >= 0 and pos[0] <= 100 and pos[1] >= 0 and pos[1] <= 100 and pos[2] >= 0 and pos[2] <= alt_len
 
-def check_collision(pos, reference):
-    return pos == reference
+def check_collision(pos, reference, current_included = True):
+    return ((pos == reference).sum() - current_included)
 
 def check_conflict(pos, reference):
     return abs(pos[2] - reference[2]) < 3 and abs(pos[1] - reference[1]) < 3 and abs(pos[0] - reference[0]) < 3
@@ -119,3 +120,46 @@ def get_next_state(df, transitions1_xyz, nearest_ground_speed_azimuth):
         next_xyzs.append(repeat(key, total))
     next_xyzs = unlist(next_xyzs)
     return actions, temp_delta_ts, next_xyzs
+
+def get_next_xyzs(x, y, z, transitions1_xyz):
+    return (list(transitions1_xyz[(x, y, z)].keys()))
+
+
+def get_next_state(df, transitions1_xyz, nearest_ground_speed_azimuth, delta_ts1):
+    actions = transitions1_xyz[(df['x'], df['y'], df['z'])][nearest_ground_speed_azimuth]
+    temp_delta_ts = delta_ts1[(df['x'], df['y'], df['z'])][nearest_ground_speed_azimuth]
+    next_xyzs = []
+    for key in actions.keys():
+        total = sum(list(actions[key].values()))
+        next_xyzs.append(repeat(key, total))
+    next_xyzs = unlist(next_xyzs)
+    return actions, temp_delta_ts, next_xyzs
+
+def get_greedy_action(next_coords, airport_coords):
+    next_coords['dist_from_airport'] = next_coords.apply(lambda x: get_distance_from_airport(x, airport_coords), axis = 1)
+    next_coords = next_coords.sort_values(['dist_from_airport']).drop(['dist_from_airport'], axis = 1).reset_index(drop = True)
+    return (next_coords.iloc[0].apply(np.int32))
+
+def greedy_update_df(df, airport_coords, transitions1_xyz, delta_ts1):
+    nearest_ground_speed_azimuth = get_nearest_ground_speed_azimuth(df['ground_speed'], df['azimuth'], list_grSpd_azi = df['list_grSpd_azi'])
+    actions, temp_delta_ts, next_xyzs = get_next_state(df = df, transitions1_xyz = transitions1_xyz, nearest_ground_speed_azimuth = nearest_ground_speed_azimuth, delta_ts1 = delta_ts1)
+    actions = pd.concat(pd.Series(list(actions.keys())).apply(pd.DataFrame).tolist(), axis = 1).T
+    actions.columns = ['x', 'y', 'z']
+    next_xyz = tuple(get_greedy_action(actions, airport_coords))
+    next_gr_spd_azi = delta_ts1[(df['x'], df['y'], df['z'])][nearest_ground_speed_azimuth][next_xyz].keys()
+    next_ts = delta_ts1[(df['x'], df['y'], df['z'])][nearest_ground_speed_azimuth][next_xyz]
+    delta_times = list(next_ts.values())
+    delta_times = list(itertools.chain(*delta_times))
+    delta_ts = int(min(delta_times))
+    gr_spd_azis = [[keys] * len(next_ts[keys]) for keys in next_ts.keys()]
+    gr_spd_azi = list(itertools.chain(*gr_spd_azis))
+    gr_spd_azi = gr_spd_azi[delta_times.index(delta_ts)]
+    df['ts'] = df['ts'] + delta_ts
+    df['ground_speed'] = gr_spd_azi[0]
+    df['azimuth'] = gr_spd_azi[1]
+    df['x'] = next_xyz[0]
+    df['y'] = next_xyz[1]
+    df['z'] = next_xyz[2]
+    df['list_grSpd_azi'] = get_next_xyzs(df['x'], df['y'], df['z'], transitions1_xyz)
+    return df
+
