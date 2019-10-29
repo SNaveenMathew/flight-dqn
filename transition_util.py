@@ -140,26 +140,154 @@ def get_greedy_action(next_coords, airport_coords):
     next_coords = next_coords.sort_values(['dist_from_airport']).drop(['dist_from_airport'], axis = 1).reset_index(drop = True)
     return (next_coords.iloc[0].apply(np.int32))
 
-def greedy_update_df(df, airport_coords, transitions1_xyz, delta_ts1):
-    nearest_ground_speed_azimuth = get_nearest_ground_speed_azimuth(df['ground_speed'], df['azimuth'], list_grSpd_azi = df['list_grSpd_azi'])
-    actions, temp_delta_ts, next_xyzs = get_next_state(df = df, transitions1_xyz = transitions1_xyz, nearest_ground_speed_azimuth = nearest_ground_speed_azimuth, delta_ts1 = delta_ts1)
-    actions = pd.concat(pd.Series(list(actions.keys())).apply(pd.DataFrame).tolist(), axis = 1).T
-    actions.columns = ['x', 'y', 'z']
-    next_xyz = tuple(get_greedy_action(actions, airport_coords))
-    next_gr_spd_azi = delta_ts1[(df['x'], df['y'], df['z'])][nearest_ground_speed_azimuth][next_xyz].keys()
-    next_ts = delta_ts1[(df['x'], df['y'], df['z'])][nearest_ground_speed_azimuth][next_xyz]
-    delta_times = list(next_ts.values())
-    delta_times = list(itertools.chain(*delta_times))
-    delta_ts = int(min(delta_times))
-    gr_spd_azis = [[keys] * len(next_ts[keys]) for keys in next_ts.keys()]
-    gr_spd_azi = list(itertools.chain(*gr_spd_azis))
-    gr_spd_azi = gr_spd_azi[delta_times.index(delta_ts)]
-    df['ts'] = df['ts'] + delta_ts
-    df['ground_speed'] = gr_spd_azi[0]
-    df['azimuth'] = gr_spd_azi[1]
-    df['x'] = next_xyz[0]
-    df['y'] = next_xyz[1]
-    df['z'] = next_xyz[2]
-    df['list_grSpd_azi'] = get_next_xyzs(df['x'], df['y'], df['z'], transitions1_xyz)
+def greedy_update_df(df, airport_coords, transitions1_xyz, delta_ts1, ts1):
+    while df['ts'] < ts1:
+        nearest_ground_speed_azimuth = get_nearest_ground_speed_azimuth(df['ground_speed'], df['azimuth'], list_grSpd_azi = df['list_grSpd_azi'])
+        actions, temp_delta_ts, next_xyzs = get_next_state(df = df, transitions1_xyz = transitions1_xyz, nearest_ground_speed_azimuth = nearest_ground_speed_azimuth, delta_ts1 = delta_ts1)
+        actions = pd.concat(pd.Series(list(actions.keys())).apply(pd.DataFrame).tolist(), axis = 1).T
+        actions.columns = ['x', 'y', 'z']
+        next_xyz = tuple(get_greedy_action(actions, airport_coords))
+        next_gr_spd_azi = delta_ts1[(df['x'], df['y'], df['z'])][nearest_ground_speed_azimuth][next_xyz].keys()
+        next_ts = delta_ts1[(df['x'], df['y'], df['z'])][nearest_ground_speed_azimuth][next_xyz]
+        delta_times = list(next_ts.values())
+        delta_times = list(itertools.chain(*delta_times))
+        delta_ts = int(min(delta_times))
+        gr_spd_azis = [[keys] * len(next_ts[keys]) for keys in next_ts.keys()]
+        gr_spd_azi = list(itertools.chain(*gr_spd_azis))
+        gr_spd_azi = gr_spd_azi[delta_times.index(delta_ts)]
+        df['ts'] = df['ts'] + delta_ts
+        df['ground_speed'] = gr_spd_azi[0]
+        df['azimuth'] = gr_spd_azi[1]
+        df['x'] = next_xyz[0]
+        df['y'] = next_xyz[1]
+        df['z'] = next_xyz[2]
+        if df['z'] != 0:
+            df['list_grSpd_azi'] = get_next_xyzs(df['x'], df['y'], df['z'], transitions1_xyz)
+        else:
+            df['ground_flag'] = True
+            break
     return df
 
+def get_transition_values_times(landing_ac_data):
+    # Retaining only aircraft IDs with destination == "JFK" in all rows
+#     df1 = flight_data[flight_data['jfk_landing_flag']]
+#     df1 = df1.sort_values(['id', 'ts']).reset_index(drop = True)
+#     df1 = df1.groupby(['id']).apply(lambda x: (x['destination'] == "JFK").mean()).reset_index(drop = False)
+#     df1 = df1[['id']][df1[0] == 1.0]
+#     landing_ac_data = df1.merge(flight_data)
+    landing_ac_data.sort_values(['id', 'ts']).reset_index(drop = True)
+    
+    transitions1_xyz = {}
+    landing_value1_xyz = {}
+    time_to_land1_xyz = {}
+    delta_ts1 = {}
+    condition = True
+    previous_id = ''
+    landing_ac_data['last_ts'] = landing_ac_data[['id', 'ts']].set_index("id").groupby(level = "id").shift(1).reset_index(drop = True)
+    landing_ac_data['last_x'] = landing_ac_data[['id', 'x']].set_index("id").groupby(level = "id").shift(1).reset_index(drop = True)
+    landing_ac_data['last_y'] = landing_ac_data[['id', 'y']].set_index("id").groupby(level = "id").shift(1).reset_index(drop = True)
+    landing_ac_data['last_z'] = landing_ac_data[['id', 'z']].set_index("id").groupby(level = "id").shift(1).reset_index(drop = True)
+    landing_ac_data['last_ground_speed'] = landing_ac_data[['id', 'ground_speed']].set_index("id").groupby(level = "id").shift(1).reset_index(drop = True)
+    landing_ac_data['last_azimuth'] = landing_ac_data[['id', 'azimuth']].set_index("id").groupby(level = "id").shift(1).reset_index(drop = True)
+    landing_ac_data = landing_ac_data[~landing_ac_data['last_ts'].apply(np.isnan)]
+    landing_ac_data = landing_ac_data.sort_values(['id', 'ts']).reset_index(drop = True)
+    landing_ac_data = landing_ac_data[(landing_ac_data['last_x'] != landing_ac_data['x']) |
+                              (landing_ac_data['last_y'] != landing_ac_data['y']) |
+                              (landing_ac_data['last_z'] != landing_ac_data['z'])]
+    landing_ac_data = landing_ac_data.sort_values(['id', 'ts']).reset_index(drop = True)
+    landing_ac_data['last_x'] = landing_ac_data['last_x'].apply(int)
+    landing_ac_data['last_y'] = landing_ac_data['last_y'].apply(int)
+    landing_ac_data['last_z'] = landing_ac_data['last_z'].apply(int)
+    landing_ac_data['last_ground_speed'] = landing_ac_data['last_ground_speed'].apply(int)
+    landing_ac_data['last_azimuth'] = landing_ac_data['last_azimuth'].apply(int)
+    
+#     unit_time = 5
+    start_df = landing_ac_data[['id', 'last_ts', 'last_x', 'last_y', 'last_z']].groupby(['id']).first().reset_index(drop = False)
+    start_df.columns = ['id', 'start_ts', 'start_x', 'start_y', 'start_z']
+    landing_ac_data = landing_ac_data.merge(start_df)
+    landing_ac_data = landing_ac_data.sort_values(['id', 'ts']).reset_index(drop = True)
+#     landing_ac_data['t'] = ((landing_ac_data['ts'] - landing_ac_data['start_ts'])/unit_time).apply(np.ceil).apply(int)
+#     landing_ac_data['last_t'] = ((landing_ac_data['last_ts'] - landing_ac_data['start_ts'])/unit_time).apply(np.ceil).apply(int)
+    
+    # Retaining only IDs that have successfully landed at JFK (small range)
+    last_df = landing_ac_data.groupby(['id']).last().reset_index(drop = False)
+    last_df['coords'] = last_df.apply(lambda x: (x['x'], x['y'], x['z']), axis = 1)
+    last_df = last_df[last_df['coords'].apply(lambda x: x[2] <= 3)]
+    print(last_df['coords'].value_counts())
+    landing_ac_data = landing_ac_data.merge(last_df[['id']])
+    landing_ac_data = landing_ac_data.sort_values(['id', 'ts']).reset_index(drop = True)
+    landed_xyz = set(last_df['coords'])
+    print(landed_xyz)
+    
+    for i in range(landing_ac_data.shape[0]):
+        id1 = landing_ac_data['id'].iloc[i]
+        last_x = landing_ac_data['last_x'].iloc[i]
+        last_y = landing_ac_data['last_y'].iloc[i]
+        last_z = landing_ac_data['last_z'].iloc[i]
+        last_ground_speed = landing_ac_data['last_ground_speed'].iloc[i]
+        last_azimuth = landing_ac_data['last_azimuth'].iloc[i]
+        last_ts = landing_ac_data['last_ts'].iloc[i]
+        x = landing_ac_data['x'].iloc[i]
+        y = landing_ac_data['y'].iloc[i]
+        z = landing_ac_data['z'].iloc[i]
+        ground_speed = landing_ac_data['ground_speed'].iloc[i]
+        azimuth = landing_ac_data['azimuth'].iloc[i]
+        ts = landing_ac_data['ts'].iloc[i]
+        landed_ts = landing_ac_data['id_end_ts'].iloc[i]
+        condition = (previous_id != id1)
+        if (not((last_x, last_y, last_z) in landed_xyz) and condition):
+            last_row = True
+            try:
+                transitions1_xyz[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)][(x, y, z)][(ground_speed, azimuth)] += 1
+                landing_value1_xyz[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)][(x, y, z)][(ground_speed, azimuth)] += [R_landing * (gamma ** (landed_ts - ts))]
+                time_to_land1_xyz[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)][(x, y, z)][(ground_speed, azimuth)] += [landed_ts - ts]
+                delta_ts1[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)][(x, y, z)][(ground_speed, azimuth)] += [ts - last_ts]
+            except:
+                try:
+                    transitions1_xyz[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)][(x, y, z)][(ground_speed, azimuth)] = 1
+                    landing_value1_xyz[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)][(x, y, z)][(ground_speed, azimuth)] = [R_landing * (gamma ** (landed_ts - ts))]
+                    time_to_land1_xyz[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)][(x, y, z)][(ground_speed, azimuth)] = [landed_ts - ts]
+                    delta_ts1[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)][(x, y, z)][(ground_speed, azimuth)] = [ts - last_ts]
+                except:
+                    try:
+                        transitions1_xyz[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)] = {(x, y, z): {(ground_speed, azimuth): 1}}
+                        landing_value1_xyz[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)] = {(x, y, z): {(ground_speed, azimuth): R_landing * (gamma ** (landed_ts - ts))}}
+                        time_to_land1_xyz[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)] = {(x, y, z): {(ground_speed, azimuth): landed_ts - ts}}
+                        delta_ts1[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)] = {(x, y, z): {(ground_speed, azimuth): [ts - last_ts]}}
+                    except:
+                        transitions1_xyz[(last_x, last_y, last_z)] = {(last_ground_speed, last_azimuth): {(x, y, z): {(ground_speed, azimuth): 1}}}
+                        landing_value1_xyz[(last_x, last_y, last_z)] = {(last_ground_speed, last_azimuth): {(x, y, z): {(ground_speed, azimuth): R_landing * (gamma ** (landed_ts - ts))}}}
+                        time_to_land1_xyz[(last_x, last_y, last_z)] = {(last_ground_speed, last_azimuth): {(x, y, z): {(ground_speed, azimuth): landed_ts - ts}}}
+                        delta_ts1[(last_x, last_y, last_z)] = {(last_ground_speed, last_azimuth): {(x, y, z): {(ground_speed, azimuth): [ts - last_ts]}}}
+        elif last_row:
+            previous_id = id1
+#             print(previous_id)
+            last_row = False
+            try:
+                transitions1_xyz[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)][(x, y, z)][(ground_speed, azimuth)] += 1
+                landing_value1_xyz[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)][(x, y, z)][(ground_speed, azimuth)] += [R_landing * (gamma ** (landed_ts - ts))]
+                time_to_land1_xyz[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)][(x, y, z)][(ground_speed, azimuth)] += [landed_ts - ts]
+                delta_ts1[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)][(x, y, z)][(ground_speed, azimuth)] += [ts - last_ts]
+            except:
+                try:
+                    transitions1_xyz[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)][(x, y, z)][(ground_speed, azimuth)] = 1
+                    landing_value1_xyz[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)][(x, y, z)][(ground_speed, azimuth)] = [R_landing * (gamma ** (landed_ts - ts))]
+                    time_to_land1_xyz[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)][(x, y, z)][(ground_speed, azimuth)] = [landed_ts - ts]
+                    delta_ts1[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)][(x, y, z)][(ground_speed, azimuth)] = [ts - last_ts]
+                except:
+                    try:
+                        transitions1_xyz[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)] = {(x, y, z): {(ground_speed, azimuth): 1}}
+                        landing_value1_xyz[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)] = {(x, y, z): {(ground_speed, azimuth): R_landing * (gamma ** (landed_ts - ts))}}
+                        time_to_land1_xyz[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)] = {(x, y, z): {(ground_speed, azimuth): landed_ts - ts}}
+                        delta_ts1[(last_x, last_y, last_z)][(last_ground_speed, last_azimuth)] = {(x, y, z): {(ground_speed, azimuth): [ts - last_ts]}}
+                    except:
+                        transitions1_xyz[(last_x, last_y, last_z)] = {(last_ground_speed, last_azimuth): {(x, y, z): {(ground_speed, azimuth): 1}}}
+                        landing_value1_xyz[(last_x, last_y, last_z)] = {(last_ground_speed, last_azimuth): {(x, y, z): {(ground_speed, azimuth): R_landing * (gamma ** (landed_ts - ts))}}}
+                        time_to_land1_xyz[(last_x, last_y, last_z)] = {(last_ground_speed, last_azimuth): {(x, y, z): {(ground_speed, azimuth): landed_ts - ts}}}
+                        delta_ts1[(last_x, last_y, last_z)] = {(last_ground_speed, last_azimuth): {(x, y, z): {(ground_speed, azimuth): [ts - last_ts]}}}
+    
+    pickle.dump(delta_ts1, open("delta_ts1_" + str(x_max) + "_" + str(y_max) + "_" + str(z_max) + "_multi_dict.pkl", "wb"))
+    pickle.dump(transitions1_xyz, open("transitions1_xyz_" + str(x_max) + "_" + str(y_max) + "_" + str(z_max) + "_multi_dict.pkl", "wb"))
+    pickle.dump(landing_value1_xyz, open("landing_value1_" + str(x_max) + "_" + str(y_max) + "_" + str(z_max) + "_multi_dict.pkl", "wb"))
+    pickle.dump(time_to_land1_xyz, open("time_to_land1_" + str(x_max) + "_" + str(y_max) + "_" + str(z_max) + "_multi_dict.pkl", "wb"))
+    pickle.dump(landed_xyz, open("landed_xyz.pkl", "wb"))
