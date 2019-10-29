@@ -22,7 +22,7 @@ def convert_pos_to_xyz(pos, conversion_y = 0.0829, conversion_z = 500):
     return (x, y, z)
 
 def get_distance_from_airport(x, airport_coords):
-    return (math.sqrt((x['x'] - airport_coords[0])**2 + (x['y'] - airport_coords[1])**2))
+    return (math.sqrt((85 * (x['x'] - airport_coords[0]) / 111)**2 + (x['y'] - airport_coords[1])**2))
 
 def convert_pos_to_xyz_new(pos, x_max, y_max, z_max):
     # Minimum required separation is 5 nm = 9.26 km
