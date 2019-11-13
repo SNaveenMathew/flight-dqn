@@ -1,5 +1,6 @@
 from geopy import distance
-import numpy as np, math, pandas as pd, itertools
+import numpy as np, math, pandas as pd, itertools, random
+import pickle
 
 def get_current_pos(row, ts1):
     if row['ts'] != ts1:
@@ -71,11 +72,23 @@ def degrees_to_radians(degrees):
 def radians_to_degrees(radians):
     return radians * 180 / math.pi
 
+def get_first_best_match(list_grSpd_azi, azimuth, thr):
+    for j in range(len(list_grSpd_azi)):
+        best_match = list_grSpd_azi[j]
+        azimuth_diff = get_diff_azimuth(azimuth, best_match[1])
+        if abs(azimuth_diff) <= thr:
+            break
+    return azimuth_diff, best_match, j
+
 def get_nearest_ground_speed_azimuth(ground_speed, azimuth, list_grSpd_azi, two_dim_tuple = False):
-    best_match = list_grSpd_azi[0]
 #     if two_dim_tuple:
 #         best_match = best_match[1]
-    azimuth_diff = get_diff_azimuth(azimuth, best_match[1])
+    thr = 15
+    azimuth_diff = thr + 1
+    while azimuth_diff > thr:
+        azimuth_diff, best_match, j = get_first_best_match(list_grSpd_azi, azimuth, thr)
+        thr = thr * 2
+    thr = thr/2
     azimuth_diff = degrees_to_radians(azimuth_diff)
     best_match_rate = ground_speed/(best_match[0] * math.cos(azimuth_diff))
     if best_match_rate > 1:
@@ -86,15 +99,20 @@ def get_nearest_ground_speed_azimuth(ground_speed, azimuth, list_grSpd_azi, two_
 #             if two_dim_tuple:
 #                 check_match = check_match[1]
             azimuth_diff = get_diff_azimuth(azimuth, check_match[1])
-            azimuth_diff = degrees_to_radians(azimuth_diff)
-            match_rate = ground_speed/(check_match[0] * math.cos(azimuth_diff))
-            if match_rate > 1:
-                match_rate = 1/match_rate
-            if match_rate > best_match_rate:
-                best_match = check_match
-                best_match_rate = match_rate
+            if abs(azimuth_diff) < thr:
+                azimuth_diff = degrees_to_radians(azimuth_diff)
+                match_rate = ground_speed/(check_match[0] * math.cos(azimuth_diff))
+                if match_rate > 1:
+                    match_rate = 1/match_rate
+                if match_rate > best_match_rate:
+                    best_match = check_match
+                    best_match_rate = match_rate
     
     return best_match
+
+
+def get_nearest_ground_speed_azimuth1(ground_speed, azimuth, list_grSpd_azi):
+    return(list_grSpd_azi[random.randrange(len(list_grSpd_azi))])
 
 def append_xyz(landing_ac_data, x_max, y_max, z_max):
     landing_ac_data['x'] = ((landing_ac_data['lon'] + 78) * x_max/10).apply(np.ceil) # -78 to -68
@@ -110,16 +128,6 @@ def append_xyz_series(series, x_max, y_max, z_max):
     series.columns = ["lat", "lon", "altitude"]
     series = append_xyz(series, x_max, y_max, z_max)
     return (series)
-
-def get_next_state(df, transitions1_xyz, nearest_ground_speed_azimuth):
-    actions = transitions1_xyz[(df['x'], df['y'], df['z'])][nearest_ground_speed_azimuth]
-    temp_delta_ts = delta_ts1[(df['x'], df['y'], df['z'])][nearest_ground_speed_azimuth]
-    next_xyzs = []
-    for key in actions.keys():
-        total = sum(list(actions[key].values()))
-        next_xyzs.append(repeat(key, total))
-    next_xyzs = unlist(next_xyzs)
-    return actions, temp_delta_ts, next_xyzs
 
 def get_next_xyzs(x, y, z, transitions1_xyz):
     return (list(transitions1_xyz[(x, y, z)].keys()))
@@ -137,10 +145,14 @@ def get_next_state(df, transitions1_xyz, nearest_ground_speed_azimuth, delta_ts1
 
 def get_greedy_action(next_coords, airport_coords):
     next_coords['dist_from_airport'] = next_coords.apply(lambda x: get_distance_from_airport(x, airport_coords), axis = 1)
-    next_coords = next_coords.sort_values(['dist_from_airport']).drop(['dist_from_airport'], axis = 1).reset_index(drop = True)
+    next_coords = next_coords.sort_values(['dist_from_airport', 'z']).drop(['dist_from_airport'], axis = 1).reset_index(drop = True)
     return (next_coords.iloc[0].apply(np.int32))
 
-def greedy_update_df(df, airport_coords, transitions1_xyz, delta_ts1, ts1):
+def get_greedy_action1(next_coords, airport_coords):
+    return (next_coords.iloc[random.randrange(next_coords.shape[0])].apply(np.int32))
+
+def greedy_update_df(df, airport_coords, transitions1_xyz, delta_ts1, ts1, is_nearest = False):
+    df = df.to_dict()
     while df['ts'] < ts1:
         nearest_ground_speed_azimuth = get_nearest_ground_speed_azimuth(df['ground_speed'], df['azimuth'], list_grSpd_azi = df['list_grSpd_azi'])
         actions, temp_delta_ts, next_xyzs = get_next_state(df = df, transitions1_xyz = transitions1_xyz, nearest_ground_speed_azimuth = nearest_ground_speed_azimuth, delta_ts1 = delta_ts1)
@@ -155,12 +167,22 @@ def greedy_update_df(df, airport_coords, transitions1_xyz, delta_ts1, ts1):
         gr_spd_azis = [[keys] * len(next_ts[keys]) for keys in next_ts.keys()]
         gr_spd_azi = list(itertools.chain(*gr_spd_azis))
         gr_spd_azi = gr_spd_azi[delta_times.index(delta_ts)]
-        df['ts'] = df['ts'] + delta_ts
-        df['ground_speed'] = gr_spd_azi[0]
-        df['azimuth'] = gr_spd_azi[1]
-        df['x'] = next_xyz[0]
-        df['y'] = next_xyz[1]
-        df['z'] = next_xyz[2]
+        if is_nearest:
+            df['ts'] = df['ts'] + delta_ts
+            df['ground_speed'] = gr_spd_azi[0]
+            df['azimuth'] = gr_spd_azi[1]
+            df['x'] = int(next_xyz[0])
+            df['y'] = int(next_xyz[1])
+            df['z'] = int(next_xyz[2])
+        elif df['ts'] + delta_ts < ts1:
+            df['ts'] = df['ts'] + delta_ts
+            df['ground_speed'] = gr_spd_azi[0]
+            df['azimuth'] = gr_spd_azi[1]
+            df['x'] = int(next_xyz[0])
+            df['y'] = int(next_xyz[1])
+            df['z'] = int(next_xyz[2])
+        else:
+            break
         if df['z'] != 0:
             df['list_grSpd_azi'] = get_next_xyzs(df['x'], df['y'], df['z'], transitions1_xyz)
         else:
@@ -168,7 +190,7 @@ def greedy_update_df(df, airport_coords, transitions1_xyz, delta_ts1, ts1):
             break
     return df
 
-def get_transition_values_times(landing_ac_data):
+def get_transitions_values_times(landing_ac_data, x_max, y_max, z_max, R_landing, R_crash, gamma):
     # Retaining only aircraft IDs with destination == "JFK" in all rows
 #     df1 = flight_data[flight_data['jfk_landing_flag']]
 #     df1 = df1.sort_values(['id', 'ts']).reset_index(drop = True)
